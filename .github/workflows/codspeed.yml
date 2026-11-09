@@ -1,0 +1,49 @@
+---
+name: codspeed
+
+on:
+    push:
+        branches:
+            - master
+    pull_request:
+        paths:
+            - scrapy/**
+            - tests/benchmarks/**
+            - .github/workflows/codspeed.yml
+            - tox.ini
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: true
+
+permissions: {}
+
+
+jobs:
+    benchmark:
+        name: Benchmark
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            id-token: write
+        env:
+            UV_PYTHON_DOWNLOADS: never
+        steps:
+            - name: Check out the repository
+              uses: actions/checkout@v5
+            - name: Set up Python and uv
+              uses: astral-sh/setup-uv@v6
+              with:
+                  python-version: "3.14"
+                  enable-cache: true
+                  cache-dependency-glob: tox.ini
+            - name: Install tox and tox-uv
+              run: uv tool install tox --with tox-uv
+            - name: Create the benchmark environment
+              run: tox -e benchmark --notest
+            - name: Run benchmarks
+              uses: CodSpeedHQ/action@v3
+              with:
+                  mode: simulation
+                  run: tox -e benchmark
