@@ -1,0 +1,145 @@
+name: Ubuntu
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+    - master
+    - '[0-9]+.[0-9]+'
+  pull_request:
+
+concurrency:
+  group: ${{github.workflow}}-${{ github.ref }}
+  cancel-in-progress: true
+
+
+jobs:
+  tests:
+    name: ${{ matrix.python-version }} ${{ matrix.toxenv }}
+    runs-on: ubuntu-latest
+    env:
+      UV_PYTHON_DOWNLOADS: never
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python-version: "3.10"
+            toxenv: py
+            coverage: false
+          - python-version: "3.11"
+            toxenv: py
+            coverage: false
+          - python-version: "3.12"
+            toxenv: py
+            coverage: false
+          - python-version: "3.13"
+            toxenv: py
+            coverage: false
+          - python-version: "3.14"
+            toxenv: py
+            coverage: true
+          - python-version: "3.14"
+            toxenv: default-reactor
+            coverage: true
+          - python-version: "3.14"
+            toxenv: no-reactor
+            coverage: true
+          - python-version: "3.14"
+            toxenv: extra-deps
+            coverage: true
+          - python-version: "3.14"
+            toxenv: no-reactor-extra-deps
+            coverage: true
+          - python-version: "3.14"
+            toxenv: botocore
+            coverage: true
+          - python-version: "pypy3.11"
+            toxenv: pypy3
+            coverage: false
+          - python-version: "pypy3.11"
+            toxenv: pypy3-extra-deps
+            coverage: false
+          - python-version: "pypy3.11"
+            toxenv: min-pypy3
+            coverage: false
+          - python-version: "3.10.19"
+            toxenv: min
+            coverage: true
+          - python-version: "3.10.19"
+            toxenv: min-default-reactor
+            coverage: true
+          - python-version: "3.10.19"
+            toxenv: min-no-reactor
+            coverage: true
+          - python-version: "3.10.19"
+            toxenv: min-extra-deps
+            coverage: true
+          - python-version: "3.10.19"
+            toxenv: min-botocore
+            coverage: true
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install libxml2 and libxslt development libraries
+        if: ${{ startsWith(matrix.python-version, 'pypy') || startsWith(matrix.toxenv, 'min') }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libxml2-dev libxslt1-dev
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Configure dependency constraints
+        if: ${{ !startsWith(matrix.toxenv, 'min') }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/scrapy-ci"
+          grep '^parsel==' docs/requirements.txt > "$RUNNER_TEMP/scrapy-ci/constraints.txt"
+          echo "UV_CONSTRAINT=$RUNNER_TEMP/scrapy-ci/constraints.txt" >> "$GITHUB_ENV"
+          echo "PIP_CONSTRAINT=$RUNNER_TEMP/scrapy-ci/constraints.txt" >> "$GITHUB_ENV"
+
+      - name: Install tox
+        run: |
+          uv tool install tox --with tox-uv
+          echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
+
+      - name: Install mitmproxy
+        env:
+          UV_PYTHON_DOWNLOADS: automatic
+        run: |
+          uv tool install --python 3.13 mitmproxy
+          echo "MITMDUMP=$(uv tool dir --bin)/mitmdump" >> "$GITHUB_ENV"
+
+      - name: Run tests
+        env:
+          PYTEST_ADDOPTS: "-n auto --junitxml=testenv.junit.xml -o junit_family=legacy ${{ !matrix.coverage && '--no-cov' || '' }}"
+          TOX_OVERRIDE: testenv.constrain_package_deps=true
+        run: tox -e ${{ matrix.toxenv }}
+
+      - name: Upload coverage report
+        if: ${{ success() && matrix.coverage }}
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.xml
+          flags: ubuntu
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
+
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v5
+        with:
+          report_type: test_results
+          files: '*.junit.xml'
+          flags: ubuntu
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
