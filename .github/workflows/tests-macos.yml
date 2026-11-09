@@ -28,10 +28,10 @@ jobs:
             toxenv: no-reactor
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           allow-prereleases: true
@@ -54,7 +54,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: ${{ success() && matrix.python-version == '3.14' && matrix.toxenv == 'py' }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: coverage.xml
           flags: macos
